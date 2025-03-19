@@ -19,7 +19,11 @@ const AdminDashboard = () => {
     totalFarmers: 0,
     pendingApprovals: 0,
     totalTransactions: 0,
-    cropStats: {}
+    cropStats: {
+      growing: 0,
+      harvested: 0,
+      sold: 0
+    }
   });
   const [loading, setLoading] = useState(true);
   const [pendingRegistrations, setPendingRegistrations] = useState([]);
@@ -32,8 +36,15 @@ const AdminDashboard = () => {
         const response = await axios.get('http://localhost:5000/api/dashboard/admin', {
           headers: { 'x-auth-token': token }
         });
-        setStats(response.data.stats);
-        setPendingRegistrations(response.data.pendingApprovals);
+        
+        setStats(response.data);
+
+        // Fetch pending registrations
+        const registrationsResponse = await axios.get(
+          'http://localhost:5000/api/auth/pending-registrations',
+          { headers: { 'x-auth-token': token } }
+        );
+        setPendingRegistrations(registrationsResponse.data);
       } catch (err) {
         console.error('Error fetching dashboard data:', err);
       } finally {
@@ -62,7 +73,8 @@ const AdminDashboard = () => {
       // Update stats
       setStats(prev => ({
         ...prev,
-        pendingApprovals: prev.pendingApprovals - 1
+        pendingApprovals: prev.pendingApprovals - 1,
+        totalFarmers: status === 'approved' ? prev.totalFarmers + 1 : prev.totalFarmers
       }));
     } catch (err) {
       console.error('Error updating registration status:', err);
@@ -103,7 +115,7 @@ const AdminDashboard = () => {
     },
     {
       title: 'Growing Crops',
-      value: stats.cropStats?.growing || '0',
+      value: stats.cropStats?.growing?.toString() || '0',
       icon: ChartBarIcon,
       change: '+5',
       changeType: 'increase'
@@ -265,13 +277,13 @@ const AdminDashboard = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-sm text-gray-900">
-                        {registration.farmerDetails.farmName}
+                        {registration.farmerDetails?.farmName}
                       </div>
                       <div className="text-sm text-gray-500">
-                        {registration.farmerDetails.farmSize} acres
+                        {registration.farmerDetails?.farmSize} acres
                       </div>
                       <div className="text-sm text-gray-500">
-                        Crops: {registration.farmerDetails.cropsGrown.join(', ')}
+                        Crops: {registration.farmerDetails?.cropsGrown?.join(', ')}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -279,7 +291,7 @@ const AdminDashboard = () => {
                         {registration.email}
                       </div>
                       <div className="text-sm text-gray-500">
-                        {registration.farmerDetails.contactNumber}
+                        {registration.farmerDetails?.contactNumber}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -308,41 +320,6 @@ const AdminDashboard = () => {
           )}
         </div>
       </motion.section>
-
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Pending Approvals */}
-        <motion.section
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="bg-white p-6 rounded-xl shadow-sm"
-        >
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            Pending Approvals
-          </h2>
-          <div className="space-y-4">
-            {/* TODO: Add pending approvals list */}
-            <p className="text-gray-600">No pending approvals</p>
-          </div>
-        </motion.section>
-
-        {/* Recent Activity */}
-        <motion.section
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-          className="bg-white p-6 rounded-xl shadow-sm"
-        >
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            Recent Activity
-          </h2>
-          <div className="space-y-4">
-            {/* TODO: Add recent activity list */}
-            <p className="text-gray-600">No recent activity</p>
-          </div>
-        </motion.section>
-      </div>
     </div>
   );
 };

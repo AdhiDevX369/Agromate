@@ -11,6 +11,7 @@ import RegistrationSuccess from './pages/RegistrationSuccess'
 import Market from './pages/Market'
 import FarmerDashboard from './pages/FarmerDashboard'
 import AdminDashboard from './pages/AdminDashboard'
+import ProtectedRoute from './components/ProtectedRoute'
 import './index.css'
 
 const router = createBrowserRouter([
@@ -44,15 +45,27 @@ const router = createBrowserRouter([
       },
       {
         path: "market",
-        element: <Market />
+        element: (
+          <ProtectedRoute>
+            <Market />
+          </ProtectedRoute>
+        )
       },
       {
         path: "farmer-dashboard",
-        element: <FarmerDashboard />
+        element: (
+          <ProtectedRoute allowedRoles={[0]}>
+            <FarmerDashboard />
+          </ProtectedRoute>
+        )
       },
       {
         path: "admin-dashboard",
-        element: <AdminDashboard />
+        element: (
+          <ProtectedRoute allowedRoles={[1, 2]}>
+            <AdminDashboard />
+          </ProtectedRoute>
+        )
       }
     ]
   }

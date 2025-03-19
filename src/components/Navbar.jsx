@@ -4,16 +4,38 @@ import { Bars3Icon, XMarkIcon, UserCircleIcon } from '@heroicons/react/24/outlin
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 
-const navigation = [
-  { name: 'Home', href: '/' },
-  { name: 'Market Prices', href: '/market' },
-  { name: 'Weather', href: '/weather' },
-  { name: 'Contact', href: '/contact' },
-];
+const getNavigationItems = (userRole) => {
+  // Common navigation items for all users
+  const commonItems = [
+    { name: 'Home', href: '/' },
+    { name: 'Weather', href: '/weather' },
+    { name: 'Contact', href: '/contact' },
+  ];
+
+  // Role-specific navigation items
+  if (userRole === 0) { // Farmer
+    return [
+      ...commonItems,
+      { name: 'Market Prices', href: '/market' },
+      { name: 'My Dashboard', href: '/farmer-dashboard' },
+    ];
+  } else if (userRole === 1 || userRole === 2) { // Admin or Super Admin
+    return [
+      ...commonItems,
+      { name: 'Admin Dashboard', href: '/admin-dashboard' },
+      { name: 'Market Management', href: '/market' },
+    ];
+  }
+
+  // For non-authenticated users
+  return commonItems;
+};
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const { user, logout } = useAuth();
+
+  const navigation = getNavigationItems(user?.role);
 
   return (
     <motion.nav 
@@ -43,7 +65,7 @@ export default function Navbar() {
               >
                 <Link
                   to={item.href}
-                  className="text-gray-700 hover:text-primary font-medium transition-colors duration-200"
+                  className="text-gray-700 hover:text-primary font-medium transition-colors duration: 200"
                 >
                   {item.name}
                 </Link>
@@ -54,6 +76,16 @@ export default function Navbar() {
                 <div className="flex items-center text-gray-700">
                   <UserCircleIcon className="h-6 w-6 text-primary mr-2" />
                   <span>{user.name}</span>
+                  {user.role === 2 && (
+                    <span className="ml-2 text-xs bg-primary text-white px-2 py-1 rounded-full">
+                      Super Admin
+                    </span>
+                  )}
+                  {user.role === 1 && (
+                    <span className="ml-2 text-xs bg-secondary text-white px-2 py-1 rounded-full">
+                      Admin
+                    </span>
+                  )}
                 </div>
                 <motion.button
                   whileHover={{ scale: 1.05 }}
@@ -141,6 +173,16 @@ export default function Navbar() {
                     <div className="flex items-center">
                       <UserCircleIcon className="h-6 w-6 text-primary mr-2" />
                       <span>{user.name}</span>
+                      {user.role === 2 && (
+                        <span className="ml-2 text-xs bg-primary text-white px-2 py-1 rounded-full">
+                          Super Admin
+                        </span>
+                      )}
+                      {user.role === 1 && (
+                        <span className="ml-2 text-xs bg-secondary text-white px-2 py-1 rounded-full">
+                          Admin
+                        </span>
+                      )}
                     </div>
                   </div>
                   <motion.div

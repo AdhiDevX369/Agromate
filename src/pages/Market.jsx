@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { marketPrices } from '../constants/marketData';
 import { useAuth } from '../contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
-import { ChevronUpIcon, ChevronDownIcon, MinusIcon } from '@heroicons/react/24/solid';
+import { ChevronUpIcon, ChevronDownIcon, MinusIcon, PencilIcon, CheckIcon, XMarkIcon } from '@heroicons/react/24/solid';
 
 const categories = [
   { id: 'vegetables', name: 'Vegetables', sinhala: 'එළවළු' },
@@ -16,6 +16,8 @@ export default function Market() {
   const { user } = useAuth();
   const [selectedCategory, setSelectedCategory] = useState('vegetables');
   const [searchTerm, setSearchTerm] = useState('');
+  const [editingPrice, setEditingPrice] = useState(null);
+  const [newPrice, setNewPrice] = useState('');
 
   if (!user) {
     return <Navigate to="/login" />;
@@ -37,6 +39,12 @@ export default function Market() {
     }
   };
 
+  const handlePriceEdit = async (productId) => {
+    // TODO: Implement price update API call
+    setEditingPrice(null);
+    setNewPrice('');
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
       {/* Header */}
@@ -45,103 +53,154 @@ export default function Market() {
         animate={{ opacity: 1, y: 0 }}
         className="text-center mb-12"
       >
-        <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-          Market Prices
+        <h1 className="text-4xl font-bold text-gray-900 mb-4">
+          {user.role === 0 ? 'Market Prices' : 'Market Price Management'}
         </h1>
         <p className="text-lg text-gray-600">
-          Current agricultural market prices in Sri Lanka
+          {user.role === 0 
+            ? 'Current market prices for agricultural products'
+            : 'Update and manage market prices for agricultural products'}
         </p>
       </motion.div>
 
-      {/* Search and Filter */}
-      <div className="mb-8 space-y-4">
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.2 }}
-          className="flex flex-wrap gap-4 justify-center"
-        >
+      {/* Search and Category Filter */}
+      <div className="flex flex-col sm:flex-row justify-between items-center mb-8 space-y-4 sm:space-y-0">
+        <div className="flex space-x-4">
           {categories.map((category) => (
             <motion.button
               key={category.id}
+              onClick={() => setSelectedCategory(category.id)}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={() => setSelectedCategory(category.id)}
-              className={`px-6 py-3 rounded-lg font-semibold transition-colors duration-200
-                ${selectedCategory === category.id
+              className={`px-4 py-2 rounded-lg transition-colors duration-200 ${
+                selectedCategory === category.id
                   ? 'bg-primary text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
+              }`}
             >
-              <span>{category.name}</span>
-              <span className="ml-2 text-sm">({category.sinhala})</span>
+              {category.name}
             </motion.button>
           ))}
-        </motion.div>
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.3 }}
-          className="max-w-md mx-auto"
-        >
+        </div>
+        <div className="w-full sm:w-64">
           <input
             type="text"
             placeholder="Search products..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full rounded-lg border-gray-300 shadow-sm focus:border-primary focus:ring-primary"
+            className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary focus:border-transparent"
           />
-        </motion.div>
+        </div>
       </div>
 
-      {/* Price List */}
+      {/* Products Table */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: 0.4 }}
-        className="bg-white rounded-2xl shadow-lg overflow-hidden"
+        transition={{ delay: 0.2 }}
+        className="bg-white rounded-xl shadow-sm overflow-hidden"
       >
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Product</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">සිංහල</th>
-                <th className="px-6 py-4 text-right text-sm font-semibold text-gray-900">Price (LKR)</th>
-                <th className="px-6 py-4 text-center text-sm font-semibold text-gray-900">Unit</th>
-                <th className="px-6 py-4 text-center text-sm font-semibold text-gray-900">Trend</th>
-                <th className="px-6 py-4 text-right text-sm font-semibold text-gray-900">Change</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 bg-white">
-              {filteredProducts.map((product) => (
-                <motion.tr
-                  key={product.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  whileHover={{ backgroundColor: 'rgba(0, 0, 0, 0.02)' }}
-                >
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">{product.name}</td>
-                  <td className="px-6 py-4 text-sm text-gray-900">{product.sinhala}</td>
-                  <td className="px-6 py-4 text-right text-sm text-gray-900">{product.price.toFixed(2)}</td>
-                  <td className="px-6 py-4 text-center text-sm text-gray-500">{product.unit}</td>
-                  <td className="px-6 py-4">
-                    <div className="flex justify-center">
-                      {getTrendIcon(product.trend)}
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Product Name
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                සිංහල නම
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Price (Rs/kg)
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Trend
+              </th>
+              {(user.role === 1 || user.role === 2) && (
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              )}
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {filteredProducts.map((product) => (
+              <motion.tr
+                key={product.id}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                layout
+              >
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                  {product.name}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  {product.sinhala}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  {editingPrice === product.id ? (
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="number"
+                        value={newPrice}
+                        onChange={(e) => setNewPrice(e.target.value)}
+                        className="w-24 px-2 py-1 rounded border border-gray-300 focus:ring-2 focus:ring-primary focus:border-transparent"
+                        placeholder="New price"
+                      />
+                      <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => handlePriceEdit(product.id)}
+                        className="text-green-600 hover:text-green-700"
+                      >
+                        <CheckIcon className="h-5 w-5" />
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => {
+                          setEditingPrice(null);
+                          setNewPrice('');
+                        }}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        <XMarkIcon className="h-5 w-5" />
+                      </motion.button>
                     </div>
+                  ) : (
+                    <span>Rs. {product.price.toFixed(2)}</span>
+                  )}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="flex items-center">
+                    {getTrendIcon(product.trend)}
+                    <span className="ml-2 text-sm text-gray-500">
+                      {product.trend === 'up' ? '+' : product.trend === 'down' ? '-' : ''}
+                      {product.change}%
+                    </span>
+                  </div>
+                </td>
+                {(user.role === 1 || user.role === 2) && (
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    {editingPrice !== product.id && (
+                      <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => {
+                          setEditingPrice(product.id);
+                          setNewPrice(product.price.toString());
+                        }}
+                        className="text-primary hover:text-primary-dark"
+                      >
+                        <PencilIcon className="h-5 w-5" />
+                      </motion.button>
+                    )}
                   </td>
-                  <td className={`px-6 py-4 text-right text-sm font-medium 
-                    ${product.trend === 'up' ? 'text-red-500' : ''}
-                    ${product.trend === 'down' ? 'text-green-500' : ''}
-                    ${product.trend === 'stable' ? 'text-gray-500' : ''}`}
-                  >
-                    {product.change > 0 ? '+' : ''}{product.change}
-                  </td>
-                </motion.tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                )}
+              </motion.tr>
+            ))}
+          </tbody>
+        </table>
       </motion.div>
     </div>
   );

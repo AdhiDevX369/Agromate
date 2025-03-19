@@ -1,39 +1,27 @@
 const router = require('express').Router();
 const { authMiddleware, roleCheck } = require('../middleware/auth');
-const User = require('../models/User');
 const Farmer = require('../models/Farmer');
 const Crop = require('../models/Crop');
 const Transaction = require('../models/Transaction');
+const User = require('../models/User');
 
 // Get farmer dashboard data
 router.get('/farmer', authMiddleware, roleCheck([0]), async (req, res) => {
     try {
-        const userId = req.user.user.id;
+        const farmer = await Farmer.findOne({ userId: req.user.user.id });
+        if (!farmer) {
+            return res.status(404).json({ message: 'Farmer profile not found' });
+        }
 
-        // Fetch all required data in parallel
-        const [farmerProfile, crops, transactions] = await Promise.all([
-            Farmer.findOne({ userId }),
-            Crop.find({ userId }).sort({ createdAt: -1 }).limit(5),
-            Transaction.find({ userId })
-                .sort({ date: -1 })
-                .limit(10)
-        ]);
-
-        // Calculate financial summary
-        const financialSummary = transactions.reduce((acc, transaction) => {
-            if (transaction.type === 'income') {
-                acc.totalIncome += transaction.amount;
-            } else {
-                acc.totalExpenses += transaction.amount;
-            }
-            return acc;
-        }, { totalIncome: 0, totalExpenses: 0 });
+        const crops = await Crop.find({ userId: req.user.user.id });
+        const transactions = await Transaction.find({ userId: req.user.user.id })
+            .sort({ date: -1 })
+            .limit(10);
 
         res.json({
-            profile: farmerProfile,
-            recentCrops: crops,
-            recentTransactions: transactions,
-            financialSummary
+            farmer,
+            crops,
+            recentTransactions: transactions
         });
     } catch (err) {
         console.error(err);
@@ -44,55 +32,46 @@ router.get('/farmer', authMiddleware, roleCheck([0]), async (req, res) => {
 // Get admin dashboard data
 router.get('/admin', authMiddleware, roleCheck([1, 2]), async (req, res) => {
     try {
-        // Fetch all required data in parallel
-        const [
-            totalFarmers,
-            pendingUsers,
-            recentTransactions,
-            cropStats
-        ] = await Promise.all([
-            User.countDocuments({ role: 0 }),
-            User.find({ role: 0, status: 'pending' })
-                .select('-password')
-                .sort({ createdAt: -1 }),
-            Transaction.find()
-                .sort({ createdAt: -1 })
-                .limit(10)
-                .populate('userId', 'name'),
-            Crop.aggregate([
-                { $group: {
+        // Get total farmers (only approved ones)
+        const totalFarmers = await User.countDocuments({ 
+            role: 0,
+            status: 'approved'
+        });
+
+        // Get pending approvals count
+        const pendingApprovals = await User.countDocuments({ 
+            role: 0,
+            status: 'pending'
+        });
+
+        // Get total transactions
+        const totalTransactions = await Transaction.countDocuments();
+
+        // Get crop statistics
+        const cropStats = await Crop.aggregate([
+            {
+                $group: {
                     _id: '$status',
                     count: { $sum: 1 }
-                }}
-            ])
+                }
+            }
         ]);
 
-        // Get farmer details for pending registrations
-        const pendingApprovals = await Promise.all(
-            pendingUsers.map(async (user) => {
-                const farmerDetails = await Farmer.findOne({ userId: user._id });
-                return {
-                    ...user.toObject(),
-                    farmerDetails
-                };
-            })
-        );
-
-        const stats = {
-            totalFarmers,
-            pendingApprovals: pendingApprovals.length,
-            totalTransactions: await Transaction.countDocuments(),
-            cropStats: cropStats.reduce((acc, stat) => {
-                acc[stat._id] = stat.count;
-                return acc;
-            }, {})
-        };
+        // Convert crop stats array to object
+        const cropStatsObject = cropStats.reduce((acc, curr) => {
+            acc[curr._id] = curr.count;
+            return acc;
+        }, {
+            growing: 0,
+            harvested: 0,
+            sold: 0
+        });
 
         res.json({
-            stats,
+            totalFarmers,
             pendingApprovals,
-            recentTransactions,
-            recentActivities: [] // TODO: Implement activity logging
+            totalTransactions,
+            cropStats: cropStatsObject
         });
     } catch (err) {
         console.error(err);
@@ -104,66 +83,94 @@ router.get('/admin', authMiddleware, roleCheck([1, 2]), async (req, res) => {
 router.put('/farmer/profile', authMiddleware, roleCheck([0]), async (req, res) => {
     try {
         const { farmName, farmSize, cropsGrown, contactNumber, address } = req.body;
-        const userId = req.user.user.id;
-
-        const updatedProfile = await Farmer.findOneAndUpdate(
-            { userId },
-            {
-                farmName,
-                farmSize,
-                cropsGrown,
-                contactNumber,
-                address,
-                profileUpdatedAt: Date.now()
-            },
-            { new: true, upsert: true }
+        const farmer = await Farmer.findOneAndUpdate(
+            { userId: req.user.user.id },
+            { farmName, farmSize, cropsGrown, contactNumber, address },
+            { new: true }
         );
-
-        res.json(updatedProfile);
+        res.json(farmer);
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server error' });
     }
 });
 
-// Add new crop
+// Add a new crop
 router.post('/farmer/crops', authMiddleware, roleCheck([0]), async (req, res) => {
     try {
-        const { cropType, quantity, expectedHarvestDate, notes } = req.body;
-        const userId = req.user.user.id;
-
-        const newCrop = new Crop({
-            userId,
+        const { cropType, quantity, expectedHarvestDate } = req.body;
+        const crop = new Crop({
+            userId: req.user.user.id,
             cropType,
             quantity,
             expectedHarvestDate,
-            notes
+            status: 'growing'
         });
-
-        await newCrop.save();
-        res.json(newCrop);
+        await crop.save();
+        res.json(crop);
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server error' });
     }
 });
 
-// Add new transaction
+// Update crop status
+router.put('/farmer/crops/:id', authMiddleware, roleCheck([0]), async (req, res) => {
+    try {
+        const { status } = req.body;
+        const crop = await Crop.findOneAndUpdate(
+            { _id: req.params.id, userId: req.user.user.id },
+            { status },
+            { new: true }
+        );
+        if (!crop) {
+            return res.status(404).json({ message: 'Crop not found' });
+        }
+        res.json(crop);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Add a transaction
 router.post('/farmer/transactions', authMiddleware, roleCheck([0]), async (req, res) => {
     try {
-        const { type, amount, description, category } = req.body;
-        const userId = req.user.user.id;
-
-        const newTransaction = new Transaction({
-            userId,
+        const { type, amount, description } = req.body;
+        const transaction = new Transaction({
+            userId: req.user.user.id,
             type,
             amount,
             description,
-            category
+            date: new Date()
         });
+        await transaction.save();
+        res.json(transaction);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
 
-        await newTransaction.save();
-        res.json(newTransaction);
+// Get farmer's transaction history with filters
+router.get('/farmer/transactions', authMiddleware, roleCheck([0]), async (req, res) => {
+    try {
+        const { startDate, endDate, type } = req.query;
+        const query = { userId: req.user.user.id };
+        
+        if (startDate && endDate) {
+            query.date = {
+                $gte: new Date(startDate),
+                $lte: new Date(endDate)
+            };
+        }
+        if (type) {
+            query.type = type;
+        }
+
+        const transactions = await Transaction.find(query)
+            .sort({ date: -1 });
+        res.json(transactions);
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server error' });

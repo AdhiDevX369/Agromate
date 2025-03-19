@@ -1,14 +1,63 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
-const User = require('../models/User');
 const { authMiddleware, roleCheck } = require('../middleware/auth');
+const User = require('../models/User');
+const Farmer = require('../models/Farmer');
 
-// Create admin (Super Admin only)
-router.post('/create', authMiddleware, roleCheck([2]), async (req, res) => {
+// Get pending registrations (Admin & Super Admin)
+router.get('/pending-registrations', authMiddleware, roleCheck([1, 2]), async (req, res) => {
     try {
-        const { email, password, name, location, adminType } = req.body;
+        const pendingUsers = await User.find({ 
+            role: 0, 
+            status: 'pending' 
+        }).select('-password');
 
-        // Check if user already exists
+        const pendingFarmers = await Promise.all(
+            pendingUsers.map(async (user) => {
+                const farmerDetails = await Farmer.findOne({ userId: user._id });
+                return {
+                    ...user.toObject(),
+                    farmerDetails
+                };
+            })
+        );
+
+        res.json(pendingFarmers);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Approve/Reject farmer registration (Admin & Super Admin)
+router.put('/registration-status/:userId', authMiddleware, roleCheck([1, 2]), async (req, res) => {
+    try {
+        const { status } = req.body;
+        if (!['approved', 'rejected'].includes(status)) {
+            return res.status(400).json({ message: 'Invalid status' });
+        }
+
+        const user = await User.findById(req.params.userId);
+        if (!user || user.role !== 0) {
+            return res.status(404).json({ message: 'User not found or not a farmer' });
+        }
+
+        user.status = status;
+        await user.save();
+
+        res.json({ message: `Registration ${status}` });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Create new admin (Super Admin only)
+router.post('/create-admin', authMiddleware, roleCheck([2]), async (req, res) => {
+    try {
+        const { email, password, name } = req.body;
+
+        // Check if admin already exists
         let user = await User.findOne({ email });
         if (user) {
             return res.status(400).json({ message: 'User already exists' });
@@ -18,21 +67,17 @@ router.post('/create', authMiddleware, roleCheck([2]), async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        // Create new admin
+        // Create new admin user
         user = new User({
             email,
             password: hashedPassword,
             name,
-            location,
-            role: 1,
-            adminType,
-            status: 'approved',
-            createdBy: req.user.user.id
+            role: 1, // Admin role
+            status: 'approved'
         });
 
         await user.save();
-
-        res.json({ message: 'Admin created successfully', adminId: user._id });
+        res.json({ message: 'Admin created successfully' });
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server error' });
@@ -40,11 +85,9 @@ router.post('/create', authMiddleware, roleCheck([2]), async (req, res) => {
 });
 
 // Get all admins (Super Admin only)
-router.get('/list', authMiddleware, roleCheck([2]), async (req, res) => {
+router.get('/admins', authMiddleware, roleCheck([2]), async (req, res) => {
     try {
-        const admins = await User.find({ role: 1 })
-            .select('-password')
-            .populate('createdBy', 'name email');
+        const admins = await User.find({ role: 1 }).select('-password');
         res.json(admins);
     } catch (err) {
         console.error(err);
@@ -52,39 +95,54 @@ router.get('/list', authMiddleware, roleCheck([2]), async (req, res) => {
     }
 });
 
-// Update admin (Super Admin only)
-router.put('/:id', authMiddleware, roleCheck([2]), async (req, res) => {
+// Update admin status (Super Admin only)
+router.put('/admin-status/:adminId', authMiddleware, roleCheck([2]), async (req, res) => {
     try {
-        const { name, location, adminType } = req.body;
-        const admin = await User.findById(req.params.id);
+        const { status } = req.body;
+        if (!['active', 'inactive'].includes(status)) {
+            return res.status(400).json({ message: 'Invalid status' });
+        }
 
+        const admin = await User.findById(req.params.adminId);
         if (!admin || admin.role !== 1) {
             return res.status(404).json({ message: 'Admin not found' });
         }
 
-        admin.name = name || admin.name;
-        admin.location = location || admin.location;
-        admin.adminType = adminType || admin.adminType;
-
+        admin.status = status;
         await admin.save();
-        res.json({ message: 'Admin updated successfully', admin });
+
+        res.json({ message: `Admin status updated to ${status}` });
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server error' });
     }
 });
 
-// Delete admin (Super Admin only)
-router.delete('/:id', authMiddleware, roleCheck([2]), async (req, res) => {
+// Get farmer details (Admin & Super Admin)
+router.get('/farmer/:farmerId', authMiddleware, roleCheck([1, 2]), async (req, res) => {
     try {
-        const admin = await User.findById(req.params.id);
-
-        if (!admin || admin.role !== 1) {
-            return res.status(404).json({ message: 'Admin not found' });
+        const farmer = await Farmer.findById(req.params.farmerId);
+        if (!farmer) {
+            return res.status(404).json({ message: 'Farmer not found' });
         }
 
-        await admin.deleteOne();
-        res.json({ message: 'Admin deleted successfully' });
+        const user = await User.findById(farmer.userId).select('-password');
+        res.json({
+            ...farmer.toObject(),
+            userDetails: user
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Update market prices (Admin & Super Admin)
+router.put('/market-prices/:productId', authMiddleware, roleCheck([1, 2]), async (req, res) => {
+    try {
+        const { price } = req.body;
+        // TODO: Implement market price update logic when the Market model is created
+        res.json({ message: 'Price updated successfully' });
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server error' });

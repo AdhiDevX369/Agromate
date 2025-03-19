@@ -37,9 +37,8 @@ router.post('/register', async (req, res) => {
             name,
             location,
             role: 0, // Default role is farmer
-            status: 'pending'
+            status: 'pending' // New farmers need approval
         });
-
         await user.save();
 
         // Create farmer profile
@@ -51,26 +50,9 @@ router.post('/register', async (req, res) => {
             contactNumber,
             address
         });
-
         await farmer.save();
 
-        // Create and return JWT token
-        const payload = {
-            user: {
-                id: user.id,
-                role: user.role
-            }
-        };
-
-        jwt.sign(
-            payload,
-            process.env.JWT_SECRET || 'fallbacksecret',
-            { expiresIn: '24h' },
-            (err, token) => {
-                if (err) throw err;
-                res.json({ token });
-            }
-        );
+        res.json({ message: 'Registration successful. Waiting for admin approval.' });
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server error' });
@@ -96,14 +78,26 @@ router.post('/login', async (req, res) => {
 
         // Check if user is approved (only for farmers)
         if (user.role === 0 && user.status !== 'approved') {
-            return res.status(403).json({ message: 'Account pending approval' });
+            return res.status(403).json({ 
+                message: 'Your account is pending approval. Please wait for admin confirmation.',
+                status: user.status
+            });
+        }
+
+        // Check if admin account is active
+        if (user.role === 1 && user.status === 'inactive') {
+            return res.status(403).json({ 
+                message: 'Your admin account has been deactivated. Please contact the super admin.',
+                status: user.status
+            });
         }
 
         // Create and return JWT token
         const payload = {
             user: {
                 id: user.id,
-                role: user.role
+                role: user.role,
+                status: user.status
             }
         };
 
@@ -113,7 +107,16 @@ router.post('/login', async (req, res) => {
             { expiresIn: '24h' },
             (err, token) => {
                 if (err) throw err;
-                res.json({ token });
+                res.json({ 
+                    token,
+                    user: {
+                        id: user.id,
+                        name: user.name,
+                        email: user.email,
+                        role: user.role,
+                        status: user.status
+                    }
+                });
             }
         );
     } catch (err) {
@@ -126,6 +129,16 @@ router.post('/login', async (req, res) => {
 router.get('/me', authMiddleware, async (req, res) => {
     try {
         const user = await User.findById(req.user.user.id).select('-password');
+        
+        // Include farmer details if the user is a farmer
+        if (user.role === 0) {
+            const farmer = await Farmer.findOne({ userId: user._id });
+            return res.json({
+                ...user.toObject(),
+                farmerDetails: farmer
+            });
+        }
+        
         res.json(user);
     } catch (err) {
         console.error(err);
@@ -177,6 +190,34 @@ router.put('/approve-registration/:userId', authMiddleware, roleCheck([1, 2]), a
         await user.save();
 
         res.json({ message: `Registration ${status}`, user });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Change password route
+router.put('/change-password', authMiddleware, async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+
+        const user = await User.findById(req.user.user.id);
+        
+        // Verify current password
+        const isMatch = await bcrypt.compare(currentPassword, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ message: 'Current password is incorrect' });
+        }
+
+        // Hash new password
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+        // Update password
+        user.password = hashedPassword;
+        await user.save();
+
+        res.json({ message: 'Password updated successfully' });
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server error' });
