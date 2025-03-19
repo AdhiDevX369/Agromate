@@ -15,10 +15,10 @@ export default function Login() {
     setError('');
 
     try {
-      await login(formData.email, formData.password);
-      navigate('/market');
+      const redirectPath = await login(formData.email, formData.password);
+      navigate(redirectPath);
     } catch (error) {
-      setError('Invalid email or password');
+      setError(error.message || 'Invalid email or password');
     }
   };
 
@@ -41,7 +41,7 @@ export default function Login() {
             Sign in to your account
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            Access market prices and weather updates
+            Access your dashboard and manage your farm
           </p>
         </div>
         

@@ -65,17 +65,30 @@ export default function Navbar() {
                 </motion.button>
               </div>
             ) : (
-              <motion.div
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <Link
-                  to="/login"
-                  className="btn-primary"
+              <div className="flex items-center space-x-4">
+                <motion.div
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                 >
-                  Login
-                </Link>
-              </motion.div>
+                  <Link
+                    to="/login"
+                    className="btn-primary"
+                  >
+                    Login
+                  </Link>
+                </motion.div>
+                <motion.div
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Link
+                    to="/register"
+                    className="btn-secondary"
+                  >
+                    Register
+                  </Link>
+                </motion.div>
+              </div>
             )}
           </div>
 
@@ -146,18 +159,32 @@ export default function Navbar() {
                   </motion.div>
                 </>
               ) : (
-                <motion.div
-                  whileHover={{ x: 5 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Link
-                    to="/login"
-                    className="block px-3 py-2 rounded-md text-white bg-primary hover:bg-primary-dark"
-                    onClick={() => setIsOpen(false)}
+                <>
+                  <motion.div
+                    whileHover={{ x: 5 }}
+                    whileTap={{ scale: 0.95 }}
                   >
-                    Login
-                  </Link>
-                </motion.div>
+                    <Link
+                      to="/login"
+                      className="block px-3 py-2 rounded-md text-white bg-primary hover:bg-primary-dark"
+                      onClick={() => setIsOpen(false)}
+                    >
+                      Login
+                    </Link>
+                  </motion.div>
+                  <motion.div
+                    whileHover={{ x: 5 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <Link
+                      to="/register"
+                      className="block px-3 py-2 rounded-md text-white bg-secondary hover:bg-secondary-dark mt-2"
+                      onClick={() => setIsOpen(false)}
+                    >
+                      Register
+                    </Link>
+                  </motion.div>
+                </>
               )}
             </div>
           </motion.div>
