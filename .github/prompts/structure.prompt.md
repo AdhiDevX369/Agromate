@@ -49,9 +49,13 @@ Your task is to develop the **AgroMate Farmers Data Management System** for Sri 
     - System metrics (user counts, pending approvals)
     - Recent activities
 2. Create interfaces for:
+    - Admin Dashboard with sidebar navigation
     - Managing farmer approvals
     - Viewing and modifying farmer profiles
-    - Updating market prices
+    - Updating market prices for crops also need manage them and their categories
+    - Managing financial transactions
+    - Managing subsidy allocations
+    
 3. For Super Admin only, add functionality to create new admin accounts
 
 ### Database Structure
@@ -61,18 +65,24 @@ Implement the following MongoDB collections exactly as specified:
     - `_id`, `email`, `password` (hashed), `role`, `status`, `name`, `location`, `createdAt`, `updatedAt`
 
 2. **Farmers Collection**:
-    - `_id`, `userId`, `farmName`, `farmSize`, `cropsGrown`, `contactNumber`, `address`, `profileUpdatedAt`
+    - `_id`, `userId` (reference to Users), `fullName`, `nic`, `dob`, `gender`, `address`, `email`, `province`, `district`, `villageDivision`, `phoneNumber`, `isGovernmentEmployee`, `salaryExceeds40k`, `eligibleForSubsidies`, `profileUpdatedAt`
 
 3. **Crops Collection**:
-    - `_id`, `userId`, `cropType`, `quantity`, `expectedHarvestDate`, `status`, `createdAt`, `updatedAt`
+    - `_id`, `farmerId` (reference to Farmers), `cropName`, `cropCategory`, `season`, `sowingDate`, `expectedHarvestDate`, `status`, `createdAt`, `updatedAt`
 
-4. **MarketPrices Collection**:
+4. **Land Collection**:
+    - `_id`, `farmerId` (reference to Farmers), `location`, `areaUsed`, `createdAt`, `updatedAt`
+
+5. **Cultivation Collection**:
+    - `_id`, `cropId` (reference to Crops), `farmingType`, `irrigationMethod`, `fertilizerMethod`, `pesticidesUsed`, `createdAt`, `updatedAt`
+
+6. **Finance Collection**:
+    - `_id`, `farmerId` (reference to Farmers), `cropId` (reference to Crops), `income`, `cropScale`, `moneySubsidies`, `fertilizerSubsidies`, `loanAmount`, `otherIncome`, `seedCost`, `fertilizerCost`, `laborCost`, `transportationCost`, `otherExpenses`, `netProfit`, `createdAt`, `updatedAt`
+
+7. **MarketPrices Collection**:
     - `_id`, `cropType`, `price`, `date`, `updatedBy`, `createdAt`, `updatedAt`
 
-5. **Transactions Collection**:
-    - `_id`, `userId`, `type`, `amount`, `description`, `date`, `createdAt`, `updatedAt`
-
-6. **Notifications Collection**:
+8. **Notifications Collection**:
     - `_id`, `userId`, `message`, `type`, `read`, `createdAt`
 
 ### Security Requirements

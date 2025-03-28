@@ -1,17 +1,26 @@
 {
-  "name": "farmer",
+  "name": "agromate-fdms",
   "version": "1.0.0",
+  "description": "AgroMate Farmers Data Management System",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "start": "node server/index.js",
+    "server": "nodemon server/index.js",
+    "client": "cd client && npm run dev",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "install-all": "npm install && cd client && npm install && cd ../server && npm install",
+    "build": "cd client && npm run build",
+    "create-admin": "node server/scripts/createSuperAdmin.js"
   },
-  "keywords": [],
+  "keywords": [
+    "farmers",
+    "agricultural",
+    "management",
+    "data",
+    "crops"
+  ],
   "author": "",
   "license": "ISC",
-  "description": "",
   "dependencies": {
     "@headlessui/react": "^1.7.17",
     "@heroicons/react": "^2.0.18",
@@ -29,6 +38,8 @@
     "autoprefixer": "^10.4.16",
     "postcss": "^8.4.31",
     "tailwindcss": "^3.3.5",
-    "vite": "^4.4.11"
+    "vite": "^4.4.11",
+    "concurrently": "^8.2.2",
+    "nodemon": "^3.1.9"
   }
 }

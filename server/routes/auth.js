@@ -1,227 +1,186 @@
-const router = require('express').Router();
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
+const express = require('express');
 const User = require('../models/User');
 const Farmer = require('../models/Farmer');
-const { authMiddleware, roleCheck } = require('../middleware/auth');
+const { createResponse, createErrorResponse, validateRequiredFields } = require('../utils');
+const { protect } = require('../middleware/auth');
+const { MIN_PASSWORD_LENGTH } = require('../config');
 
-// Register route
+const router = express.Router();
+
+/**
+ * @route   POST /api/auth/register
+ * @desc    Register a new user
+ * @access  Public
+ */
 router.post('/register', async (req, res) => {
-    try {
-        const { 
-            email, 
-            password, 
-            name, 
-            location,
-            farmName,
-            farmSize,
-            cropsGrown,
-            contactNumber,
-            address
-        } = req.body;
+  try {
+    const { name, email, password } = req.body;
 
-        // Check if user already exists
-        let user = await User.findOne({ email });
-        if (user) {
-            return res.status(400).json({ message: 'User already exists' });
-        }
-
-        // Hash password
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
-
-        // Create new user
-        user = new User({
-            email,
-            password: hashedPassword,
-            name,
-            location,
-            role: 0, // Default role is farmer
-            status: 'pending' // New farmers need approval
-        });
-        await user.save();
-
-        // Create farmer profile
-        const farmer = new Farmer({
-            userId: user._id,
-            farmName,
-            farmSize,
-            cropsGrown,
-            contactNumber,
-            address
-        });
-        await farmer.save();
-
-        res.json({ message: 'Registration successful. Waiting for admin approval.' });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Server error' });
+    // Validate required fields
+    const missingFields = validateRequiredFields(req.body, ['name', 'email', 'password']);
+    if (missingFields) {
+      return res.status(400).json(createResponse(false, missingFields));
     }
+
+    // Check if password meets requirements
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      return res.status(400).json(
+        createResponse(false, `Password must be at least ${MIN_PASSWORD_LENGTH} characters long`)
+      );
+    }
+
+    // Check if user already exists
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return res.status(409).json(
+        createResponse(false, 'User with that email already exists')
+      );
+    }
+
+    // Create user (only farmers can register through this route)
+    const user = await User.create({
+      name,
+      email,
+      password,
+      role: 'farmer',
+      status: 'pending' // All new registrations need admin approval
+    });
+
+    // Create farmer profile
+    await Farmer.create({
+      user: user._id
+    });
+
+    // Generate JWT token
+    const token = user.getSignedJwtToken();
+
+    res.status(201).json(
+      createResponse(true, 'Registration successful. Please wait for admin approval.', { token })
+    );
+  } catch (error) {
+    const { statusCode, response } = createErrorResponse(error);
+    res.status(statusCode).json(response);
+  }
 });
 
-// Login route
+/**
+ * @route   POST /api/auth/login
+ * @desc    Login user
+ * @access  Public
+ */
 router.post('/login', async (req, res) => {
-    try {
-        const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-        // Check if user exists
-        const user = await User.findOne({ email });
-        if (!user) {
-            return res.status(400).json({ message: 'Invalid credentials' });
-        }
+    // Validate required fields
+    const missingFields = validateRequiredFields(req.body, ['email', 'password']);
+    if (missingFields) {
+      return res.status(400).json(createResponse(false, missingFields));
+    }
 
-        // Check password
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-            return res.status(400).json({ message: 'Invalid credentials' });
-        }
+    // Check if user exists
+    const user = await User.findOne({ email }).select('+password');
+    if (!user) {
+      return res.status(401).json(
+        createResponse(false, 'Invalid email or password')
+      );
+    }
 
-        // Check if user is approved (only for farmers)
-        if (user.role === 0 && user.status !== 'approved') {
-            return res.status(403).json({ 
-                message: 'Your account is pending approval. Please wait for admin confirmation.',
-                status: user.status
-            });
-        }
+    // Check if account is locked
+    if (user.lockUntil && user.lockUntil > Date.now()) {
+      const waitTime = Math.ceil((user.lockUntil - Date.now()) / 1000 / 60);
+      return res.status(423).json(
+        createResponse(false, `Account is locked. Please try again in ${waitTime} minutes`)
+      );
+    }
 
-        // Check if admin account is active
-        if (user.role === 1 && user.status === 'inactive') {
-            return res.status(403).json({ 
-                message: 'Your admin account has been deactivated. Please contact the super admin.',
-                status: user.status
-            });
-        }
+    // Check if account is blocked by admin
+    if (user.status === 'blocked') {
+      return res.status(403).json(
+        createResponse(false, 'Your account has been blocked. Please contact support.')
+      );
+    }
 
-        // Create and return JWT token
-        const payload = {
-            user: {
-                id: user.id,
-                role: user.role,
-                status: user.status
-            }
-        };
+    // Check if account is pending approval
+    if (user.status === 'pending') {
+      return res.status(403).json(
+        createResponse(false, 'Your account is pending approval from admin.')
+      );
+    }
 
-        jwt.sign(
-            payload,
-            process.env.JWT_SECRET || 'fallbacksecret',
-            { expiresIn: '24h' },
-            (err, token) => {
-                if (err) throw err;
-                res.json({ 
-                    token,
-                    user: {
-                        id: user.id,
-                        name: user.name,
-                        email: user.email,
-                        role: user.role,
-                        status: user.status
-                    }
-                });
-            }
+    // Check if password matches
+    const isMatch = await user.matchPassword(password);
+    if (!isMatch) {
+      await user.incrementLoginAttempts();
+      
+      // Check if account should be locked after this attempt
+      if (user.loginAttempts + 1 >= 5) {
+        return res.status(423).json(
+          createResponse(false, 'Too many failed attempts. Account is locked for 1 hour.')
         );
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Server error' });
+      }
+
+      return res.status(401).json(
+        createResponse(false, `Invalid email or password. ${5 - (user.loginAttempts + 1)} attempts remaining.`)
+      );
     }
+
+    // Reset login attempts on successful login
+    await user.resetLoginAttempts();
+
+    // Generate JWT token
+    const token = user.getSignedJwtToken();
+
+    res.status(200).json(
+      createResponse(true, 'Login successful', { 
+        token,
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role
+        }
+      })
+    );
+  } catch (error) {
+    const { statusCode, response } = createErrorResponse(error);
+    res.status(statusCode).json(response);
+  }
 });
 
-// Get current user route
-router.get('/me', authMiddleware, async (req, res) => {
-    try {
-        const user = await User.findById(req.user.user.id).select('-password');
-        
-        // Include farmer details if the user is a farmer
-        if (user.role === 0) {
-            const farmer = await Farmer.findOne({ userId: user._id });
-            return res.json({
-                ...user.toObject(),
-                farmerDetails: farmer
-            });
-        }
-        
-        res.json(user);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Server error' });
+/**
+ * @route   GET /api/auth/me
+ * @desc    Get current user
+ * @access  Private
+ */
+router.get('/me', protect, async (req, res) => {
+  try {
+    const user = req.user;
+    let userData = {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+      phone: user.phone,
+      address: user.address
+    };
+
+    // If user is a farmer, get farmer data
+    if (user.role === 'farmer') {
+      const farmer = await Farmer.findOne({ user: user._id });
+      if (farmer) {
+        userData.farmer = farmer;
+      }
     }
-});
 
-// Get pending registrations (Admin & Super Admin only)
-router.get('/pending-registrations', authMiddleware, roleCheck([1, 2]), async (req, res) => {
-    try {
-        const pendingUsers = await User.find({ 
-            role: 0, 
-            status: 'pending' 
-        }).select('-password');
-
-        const pendingFarmers = await Promise.all(
-            pendingUsers.map(async (user) => {
-                const farmerDetails = await Farmer.findOne({ userId: user._id });
-                return {
-                    ...user.toObject(),
-                    farmerDetails
-                };
-            })
-        );
-
-        res.json(pendingFarmers);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Server error' });
-    }
-});
-
-// Approve/Reject farmer registration (Admin & Super Admin only)
-router.put('/approve-registration/:userId', authMiddleware, roleCheck([1, 2]), async (req, res) => {
-    try {
-        const { status } = req.body; // 'approved' or 'rejected'
-        
-        if (!['approved', 'rejected'].includes(status)) {
-            return res.status(400).json({ message: 'Invalid status' });
-        }
-
-        const user = await User.findById(req.params.userId);
-        
-        if (!user || user.role !== 0) {
-            return res.status(404).json({ message: 'Farmer not found' });
-        }
-
-        user.status = status;
-        await user.save();
-
-        res.json({ message: `Registration ${status}`, user });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Server error' });
-    }
-});
-
-// Change password route
-router.put('/change-password', authMiddleware, async (req, res) => {
-    try {
-        const { currentPassword, newPassword } = req.body;
-
-        const user = await User.findById(req.user.user.id);
-        
-        // Verify current password
-        const isMatch = await bcrypt.compare(currentPassword, user.password);
-        if (!isMatch) {
-            return res.status(400).json({ message: 'Current password is incorrect' });
-        }
-
-        // Hash new password
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(newPassword, salt);
-
-        // Update password
-        user.password = hashedPassword;
-        await user.save();
-
-        res.json({ message: 'Password updated successfully' });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Server error' });
-    }
+    res.status(200).json(
+      createResponse(true, 'User data retrieved successfully', userData)
+    );
+  } catch (error) {
+    const { statusCode, response } = createErrorResponse(error);
+    res.status(statusCode).json(response);
+  }
 });
 
 module.exports = router;

@@ -1,180 +1,245 @@
-const router = require('express').Router();
-const { authMiddleware, roleCheck } = require('../middleware/auth');
+const express = require('express');
 const Farmer = require('../models/Farmer');
 const Crop = require('../models/Crop');
 const Transaction = require('../models/Transaction');
 const User = require('../models/User');
+const MarketPrices = require('../models/MarketPrices');
+const { protect, authorize } = require('../middleware/auth');
+const { createResponse, createErrorResponse, validateRequiredFields } = require('../utils');
 
-// Get farmer dashboard data
-router.get('/farmer', authMiddleware, roleCheck([0]), async (req, res) => {
-    try {
-        const farmer = await Farmer.findOne({ userId: req.user.user.id });
-        if (!farmer) {
-            return res.status(404).json({ message: 'Farmer profile not found' });
+const router = express.Router();
+
+// Protect all routes in this router
+router.use(protect);
+
+/**
+ * @route   GET /api/dashboard/farmer
+ * @desc    Get farmer dashboard data
+ * @access  Private (Farmer only)
+ */
+router.get('/farmer', authorize('farmer'), async (req, res) => {
+  try {
+    // Find farmer profile
+    const farmer = await Farmer.findOne({ user: req.user.id });
+    
+    if (!farmer) {
+      return res.status(404).json(
+        createResponse(false, 'Farmer profile not found')
+      );
+    }
+
+    // Get farmer's crops
+    const crops = await Crop.find({ farmer: farmer._id });
+    
+    // Get farmer's recent transactions
+    const recentTransactions = await Transaction.find({ farmer: farmer._id })
+      .sort({ date: -1 })
+      .limit(5);
+    
+    // Calculate statistics
+    const totalCrops = crops.length;
+    const activeCrops = crops.filter(crop => 
+      ['Planted', 'Growing'].includes(crop.status)
+    ).length;
+    
+    const harvestedCrops = crops.filter(crop => 
+      crop.status === 'Harvested'
+    ).length;
+    
+    // Get total income and expenses
+    const transactions = await Transaction.find({ farmer: farmer._id });
+    
+    const incomeTotal = transactions
+      .filter(t => ['Sale', 'Income'].includes(t.type))
+      .reduce((sum, t) => sum + t.amount, 0);
+      
+    const expenseTotal = transactions
+      .filter(t => ['Purchase', 'Expense'].includes(t.type))
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    res.status(200).json(
+      createResponse(true, 'Dashboard data retrieved successfully', {
+        farmer,
+        stats: {
+          totalCrops,
+          activeCrops,
+          harvestedCrops,
+          incomeTotal,
+          expenseTotal,
+          profit: incomeTotal - expenseTotal
+        },
+        recentCrops: crops.slice(0, 5),
+        recentTransactions
+      })
+    );
+  } catch (error) {
+    const { statusCode, response } = createErrorResponse(error);
+    res.status(statusCode).json(response);
+  }
+});
+
+/**
+ * @route   GET /api/dashboard/farmer/crops
+ * @desc    Get all farmer crops
+ * @access  Private (Farmer only)
+ */
+router.get('/farmer/crops', authorize('farmer'), async (req, res) => {
+  try {
+    const farmer = await Farmer.findOne({ user: req.user.id });
+    
+    if (!farmer) {
+      return res.status(404).json(
+        createResponse(false, 'Farmer profile not found')
+      );
+    }
+
+    const crops = await Crop.find({ farmer: farmer._id });
+
+    res.status(200).json(
+      createResponse(true, 'Crops retrieved successfully', { crops })
+    );
+  } catch (error) {
+    const { statusCode, response } = createErrorResponse(error);
+    res.status(statusCode).json(response);
+  }
+});
+
+/**
+ * @route   POST /api/dashboard/farmer/crops
+ * @desc    Add a new crop
+ * @access  Private (Farmer only)
+ */
+router.post('/farmer/crops', authorize('farmer'), async (req, res) => {
+  try {
+    const { name, variety, plantingDate, harvestDate, fieldLocation, estimatedYield } = req.body;
+    
+    // Validate required fields
+    const missingFields = validateRequiredFields(req.body, ['name', 'plantingDate']);
+    if (missingFields) {
+      return res.status(400).json(createResponse(false, missingFields));
+    }
+
+    const farmer = await Farmer.findOne({ user: req.user.id });
+    
+    if (!farmer) {
+      return res.status(404).json(
+        createResponse(false, 'Farmer profile not found')
+      );
+    }
+
+    const crop = await Crop.create({
+      name,
+      variety,
+      farmer: farmer._id,
+      plantingDate,
+      harvestDate,
+      status: 'Planning',
+      fieldLocation,
+      estimatedYield
+    });
+
+    // Update farmer's crops array
+    await Farmer.findByIdAndUpdate(
+      farmer._id,
+      { $push: { crops: crop._id } }
+    );
+
+    res.status(201).json(
+      createResponse(true, 'Crop added successfully', { crop })
+    );
+  } catch (error) {
+    const { statusCode, response } = createErrorResponse(error);
+    res.status(statusCode).json(response);
+  }
+});
+
+/**
+ * @route   PUT /api/dashboard/farmer/profile
+ * @desc    Update farmer profile
+ * @access  Private (Farmer only)
+ */
+router.put('/farmer/profile', authorize('farmer'), async (req, res) => {
+  try {
+    const { farmName, farmSize, farmingType, location, bio } = req.body;
+    
+    const farmer = await Farmer.findOne({ user: req.user.id });
+    
+    if (!farmer) {
+      return res.status(404).json(
+        createResponse(false, 'Farmer profile not found')
+      );
+    }
+
+    // Update farmer profile
+    const updatedFarmer = await Farmer.findByIdAndUpdate(
+      farmer._id,
+      {
+        farmName,
+        farmSize,
+        farmingType,
+        location,
+        bio
+      },
+      { new: true }
+    );
+
+    // Update user profile if needed
+    if (req.body.name || req.body.phone || req.body.address) {
+      await User.findByIdAndUpdate(
+        req.user.id,
+        {
+          name: req.body.name,
+          phone: req.body.phone,
+          address: req.body.address
         }
-
-        const crops = await Crop.find({ userId: req.user.user.id });
-        const transactions = await Transaction.find({ userId: req.user.user.id })
-            .sort({ date: -1 })
-            .limit(10);
-
-        res.json({
-            farmer,
-            crops,
-            recentTransactions: transactions
-        });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Server error' });
+      );
     }
+
+    res.status(200).json(
+      createResponse(true, 'Profile updated successfully', { farmer: updatedFarmer })
+    );
+  } catch (error) {
+    const { statusCode, response } = createErrorResponse(error);
+    res.status(statusCode).json(response);
+  }
 });
 
-// Get admin dashboard data
-router.get('/admin', authMiddleware, roleCheck([1, 2]), async (req, res) => {
-    try {
-        // Get total farmers (only approved ones)
-        const totalFarmers = await User.countDocuments({ 
-            role: 0,
-            status: 'approved'
-        });
-
-        // Get pending approvals count
-        const pendingApprovals = await User.countDocuments({ 
-            role: 0,
-            status: 'pending'
-        });
-
-        // Get total transactions
-        const totalTransactions = await Transaction.countDocuments();
-
-        // Get crop statistics
-        const cropStats = await Crop.aggregate([
-            {
-                $group: {
-                    _id: '$status',
-                    count: { $sum: 1 }
-                }
-            }
-        ]);
-
-        // Convert crop stats array to object
-        const cropStatsObject = cropStats.reduce((acc, curr) => {
-            acc[curr._id] = curr.count;
-            return acc;
-        }, {
-            growing: 0,
-            harvested: 0,
-            sold: 0
-        });
-
-        res.json({
-            totalFarmers,
-            pendingApprovals,
-            totalTransactions,
-            cropStats: cropStatsObject
-        });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Server error' });
-    }
+/**
+ * @route   GET /api/dashboard/market-prices
+ * @desc    Get market prices for farmers
+ * @access  Private (Farmer only)
+ */
+router.get('/market-prices', authorize('farmer'), async (req, res) => {
+  try {
+    const prices = await MarketPrices.find()
+      .sort({ category: 1, cropType: 1 });
+    
+    res.status(200).json(
+      createResponse(true, 'Market prices retrieved successfully', { prices })
+    );
+  } catch (error) {
+    const { statusCode, response } = createErrorResponse(error);
+    res.status(statusCode).json(response);
+  }
 });
 
-// Update farmer profile
-router.put('/farmer/profile', authMiddleware, roleCheck([0]), async (req, res) => {
-    try {
-        const { farmName, farmSize, cropsGrown, contactNumber, address } = req.body;
-        const farmer = await Farmer.findOneAndUpdate(
-            { userId: req.user.user.id },
-            { farmName, farmSize, cropsGrown, contactNumber, address },
-            { new: true }
-        );
-        res.json(farmer);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Server error' });
-    }
-});
-
-// Add a new crop
-router.post('/farmer/crops', authMiddleware, roleCheck([0]), async (req, res) => {
-    try {
-        const { cropType, quantity, expectedHarvestDate } = req.body;
-        const crop = new Crop({
-            userId: req.user.user.id,
-            cropType,
-            quantity,
-            expectedHarvestDate,
-            status: 'growing'
-        });
-        await crop.save();
-        res.json(crop);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Server error' });
-    }
-});
-
-// Update crop status
-router.put('/farmer/crops/:id', authMiddleware, roleCheck([0]), async (req, res) => {
-    try {
-        const { status } = req.body;
-        const crop = await Crop.findOneAndUpdate(
-            { _id: req.params.id, userId: req.user.user.id },
-            { status },
-            { new: true }
-        );
-        if (!crop) {
-            return res.status(404).json({ message: 'Crop not found' });
-        }
-        res.json(crop);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Server error' });
-    }
-});
-
-// Add a transaction
-router.post('/farmer/transactions', authMiddleware, roleCheck([0]), async (req, res) => {
-    try {
-        const { type, amount, description } = req.body;
-        const transaction = new Transaction({
-            userId: req.user.user.id,
-            type,
-            amount,
-            description,
-            date: new Date()
-        });
-        await transaction.save();
-        res.json(transaction);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Server error' });
-    }
-});
-
-// Get farmer's transaction history with filters
-router.get('/farmer/transactions', authMiddleware, roleCheck([0]), async (req, res) => {
-    try {
-        const { startDate, endDate, type } = req.query;
-        const query = { userId: req.user.user.id };
-        
-        if (startDate && endDate) {
-            query.date = {
-                $gte: new Date(startDate),
-                $lte: new Date(endDate)
-            };
-        }
-        if (type) {
-            query.type = type;
-        }
-
-        const transactions = await Transaction.find(query)
-            .sort({ date: -1 });
-        res.json(transactions);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Server error' });
-    }
+/**
+ * @route   GET /api/dashboard/market-prices/category/:category
+ * @desc    Get market prices by category for farmers
+ * @access  Private (Farmer only)
+ */
+router.get('/market-prices/category/:category', authorize('farmer'), async (req, res) => {
+  try {
+    const prices = await MarketPrices.find({ category: req.params.category })
+      .sort({ cropType: 1 });
+    
+    res.status(200).json(
+      createResponse(true, 'Market prices retrieved successfully', { prices })
+    );
+  } catch (error) {
+    const { statusCode, response } = createErrorResponse(error);
+    res.status(statusCode).json(response);
+  }
 });
 
 module.exports = router;

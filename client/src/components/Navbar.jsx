@@ -13,17 +13,15 @@ const getNavigationItems = (userRole) => {
   ];
 
   // Role-specific navigation items
-  if (userRole === 0) { // Farmer
+  if (userRole === 'farmer') {
     return [
       ...commonItems,
       { name: 'Market Prices', href: '/market' },
-      { name: 'My Dashboard', href: '/farmer-dashboard' },
+      { name: 'My Dashboard', href: '/dashboard/farmer' },
     ];
-  } else if (userRole === 1 || userRole === 2) { // Admin or Super Admin
+  } else if (userRole === 'admin' || userRole === 'super_admin') {
     return [
-      ...commonItems,
-      { name: 'Admin Dashboard', href: '/admin-dashboard' },
-      { name: 'Market Management', href: '/market' },
+      { name: 'Admin Dashboard', href: '/dashboard/admin' },
     ];
   }
 
@@ -76,12 +74,12 @@ export default function Navbar() {
                 <div className="flex items-center text-gray-700">
                   <UserCircleIcon className="h-6 w-6 text-primary mr-2" />
                   <span>{user.name}</span>
-                  {user.role === 2 && (
+                  {user.role === 'super_admin' && (
                     <span className="ml-2 text-xs bg-primary text-white px-2 py-1 rounded-full">
                       Super Admin
                     </span>
                   )}
-                  {user.role === 1 && (
+                  {user.role === 'admin' && (
                     <span className="ml-2 text-xs bg-secondary text-white px-2 py-1 rounded-full">
                       Admin
                     </span>
@@ -173,12 +171,12 @@ export default function Navbar() {
                     <div className="flex items-center">
                       <UserCircleIcon className="h-6 w-6 text-primary mr-2" />
                       <span>{user.name}</span>
-                      {user.role === 2 && (
+                      {user.role === 'super_admin' && (
                         <span className="ml-2 text-xs bg-primary text-white px-2 py-1 rounded-full">
                           Super Admin
                         </span>
                       )}
-                      {user.role === 1 && (
+                      {user.role === 'admin' && (
                         <span className="ml-2 text-xs bg-secondary text-white px-2 py-1 rounded-full">
                           Admin
                         </span>

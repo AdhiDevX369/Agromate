@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Navigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -9,7 +9,6 @@ import {
   BanknotesIcon,
   ChartBarIcon,
   UserPlusIcon,
-  PencilSquareIcon,
 } from '@heroicons/react/24/outline';
 import { format } from 'date-fns';
 
@@ -28,23 +27,35 @@ const AdminDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [pendingRegistrations, setPendingRegistrations] = useState([]);
   const [loadingApprovals, setLoadingApprovals] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await axios.get('http://localhost:5000/api/dashboard/admin', {
-          headers: { 'x-auth-token': token }
+        const response = await axios.get('http://localhost:5000/api/admin/dashboard', {
+          headers: { 'Authorization': `Bearer ${token}` }
         });
         
-        setStats(response.data);
+        // Properly extract stats from response data
+        const dashboardData = response.data.data;
+        setStats({
+          totalFarmers: dashboardData.stats.farmers || 0,
+          pendingApprovals: dashboardData.stats.pendingUsers || 0,
+          totalTransactions: dashboardData.stats.transactions || 0,
+          cropStats: dashboardData.stats.cropsByStatus || {
+            growing: 0,
+            harvested: 0,
+            sold: 0
+          }
+        });
 
         // Fetch pending registrations
         const registrationsResponse = await axios.get(
-          'http://localhost:5000/api/auth/pending-registrations',
-          { headers: { 'x-auth-token': token } }
+          'http://localhost:5000/api/admin/pending-registrations',
+          { headers: { 'Authorization': `Bearer ${token}` } }
         );
-        setPendingRegistrations(registrationsResponse.data);
+        setPendingRegistrations(registrationsResponse.data.data.pendingRegistrations || []);
       } catch (err) {
         console.error('Error fetching dashboard data:', err);
       } finally {
@@ -60,9 +71,9 @@ const AdminDashboard = () => {
     try {
       const token = localStorage.getItem('token');
       await axios.put(
-        `http://localhost:5000/api/auth/approve-registration/${userId}`,
-        { status },
-        { headers: { 'x-auth-token': token } }
+        `http://localhost:5000/api/admin/users/${userId}/status`,
+        { status: status === 'approved' ? 'active' : 'blocked' },
+        { headers: { 'Authorization': `Bearer ${token}` } }
       );
 
       // Update local state
@@ -73,17 +84,13 @@ const AdminDashboard = () => {
       // Update stats
       setStats(prev => ({
         ...prev,
-        pendingApprovals: prev.pendingApprovals - 1,
+        pendingApprovals: Math.max(0, prev.pendingApprovals - 1),
         totalFarmers: status === 'approved' ? prev.totalFarmers + 1 : prev.totalFarmers
       }));
     } catch (err) {
       console.error('Error updating registration status:', err);
     }
   };
-
-  if (!user || (user.role !== 1 && user.role !== 2)) {
-    return <Navigate to="/login" />;
-  }
 
   if (loading) {
     return (
@@ -139,9 +146,9 @@ const AdminDashboard = () => {
       showOnlyToSuperAdmin: true
     },
     {
-      title: 'Update Market Prices',
-      icon: PencilSquareIcon,
-      onClick: () => {/* TODO: Implement market price update */},
+      title: 'Manage Crops',
+      icon: ChartBarIcon,
+      onClick: () => navigate('/dashboard/admin/crops'),
       color: 'bg-green-500',
       showOnlyToSuperAdmin: false
     }
@@ -159,7 +166,7 @@ const AdminDashboard = () => {
           Admin Dashboard
         </h1>
         <p className="text-gray-600">
-          Welcome back, {user.name} ({user.role === 2 ? 'Super Admin' : 'Admin'})
+          Welcome back, {user.name} ({user.role === 'super_admin' ? 'Super Admin' : 'Admin'})
         </p>
       </motion.div>
 
@@ -201,7 +208,7 @@ const AdminDashboard = () => {
         className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8"
       >
         {quickActions.map((action, index) => {
-          if (action.showOnlyToSuperAdmin && user.role !== 2) return null;
+          if (action.showOnlyToSuperAdmin && user.role !== 'super_admin') return null;
           return (
             <motion.button
               key={action.title}
